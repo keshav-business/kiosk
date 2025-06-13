@@ -414,8 +414,24 @@ async def validate_contact_info(text: str) -> tuple[bool, Optional[Dict]]:
             )
         )
         
-        contact_info = json.loads(response.json()['choices'][0]['message']['content'].strip())
-        return contact_info['is_valid'], contact_info
+        # Check if response is valid
+        response_json = response.json()
+        if 'choices' not in response_json or not response_json['choices']:
+            logger.error(f"Invalid API response structure: {response_json}")
+            return False, None
+            
+        if 'message' not in response_json['choices'][0] or 'content' not in response_json['choices'][0]['message']:
+            logger.error(f"Invalid message structure in API response: {response_json['choices'][0]}")
+            return False, None
+        
+        content = response_json['choices'][0]['message']['content'].strip()
+        
+        try:
+            contact_info = json.loads(content)
+            return contact_info.get('is_valid', False), contact_info
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse contact info JSON: {e}. Content: {content}")
+            return False, None
     except Exception as e:
         logger.error(f"Error in contact info validation: {str(e)}")
         return False, None
@@ -596,12 +612,21 @@ async def process_card_stream(websocket: WebSocket):
                         # Process frame with Vision API
                         success, encoded_frame = cv2.imencode('.jpg', frame)
                         if success:
-                            text = await process_image_with_vision_api(encoded_frame.tobytes())
-                            if text:
-                                is_valid, contact_info = await validate_contact_info(text)
-                                if is_valid and contact_info['name'] != 'NA':
-                                    logger.info("Valid card detected")
-                                    return contact_info
+                            try:
+                                text = await process_image_with_vision_api(encoded_frame.tobytes())
+                                if text:
+                                    logger.info(f"Vision API detected text: {text[:100]}...")  # Log first 100 chars
+                                    is_valid, contact_info = await validate_contact_info(text)
+                                    
+                                    if is_valid and contact_info and contact_info.get('name') != 'NA':
+                                        logger.info("Valid card detected")
+                                        return contact_info
+                                    else:
+                                        logger.info("Card validation failed or name was NA")
+                                else:
+                                    logger.info("No text detected in the frame")
+                            except Exception as e:
+                                logger.error(f"Error processing frame with Vision API: {str(e)}")
                     
                     previous_frame = frame.copy()
                     last_frame_time = current_time

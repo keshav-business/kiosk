@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Avatar Assistant</title>
+    <style>
+        html, body {
+  overflow: hidden;
+  height: 100%;
+  margin: 0;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: 
+                linear-gradient(135deg, #0a0a0a 0%, #000000 50%, #0a0a0a 100%),
+                url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" fill="none"/><path d="M0,0 L100,100 M100,0 L0,100" stroke="rgba(0,255,255,0.03)" stroke-width="1"/></svg>');
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(0, 255, 255, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(0, 255, 255, 0.05) 0%, transparent 50%),
+                linear-gradient(45deg, rgba(0, 255, 255, 0.05) 0%, transparent 50%),
+                repeating-linear-gradient(0deg, transparent 0px, transparent 1px, rgba(0, 255, 255, 0.03) 1px, rgba(0, 255, 255, 0.03) 2px);
+            z-index: -1;
+            animation: pulse 8s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 0.8; }
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        #avatar {
+            width: 100%;
+            height: 80vh;
+            min-height: 600px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .wave-container {
+            position: absolute;
+            width: 100px;
+            height: 100%;
+            top: 0;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        .wave-container.visible {
+            opacity: 1;
+        }
+
+        .wave-container.left {
+            left: 0;
+        }
+
+        .wave-container.right {
+            right: 0;
+        }
+
+        .wave {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.1), transparent);
+            animation: waveAnimation 2s ease-in-out infinite;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+
+        .wave-container.visible .wave {
+            opacity: 1;
+        }
+
+        .wave:nth-child(2) {
+            animation-delay: 0.5s;
+        }
+
+        .wave:nth-child(3) {
+            animation-delay: 1s;
+        }
+
+        @keyframes waveAnimation {
+            0%, 100% {
+                transform: scaleY(0.8);
+                opacity: 0.3;
+            }
+            50% {
+                transform: scaleY(1.2);
+                opacity: 0.6;
+            }
+        }
+
+        #messages {
+            display: none;
+            width: 100%;
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 150px;
+            overflow-y: auto;
+            margin: 20px 0;
+            background-color: #303030;
+            border-radius: 5px;
+        }
+
+        .controls {
+            margin: 20px 0;
+            display: none;
+        }
+
+        button {
+            padding: 12px 24px;
+            margin: 0 10px;
+            cursor: pointer;
+            background-color: #404040;
+            color: white;
+            border: 1px solid #505050;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #505050;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #loading {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            border-radius: 5px;
+        }
+
+        #waveform {
+            width: 350px;
+            height: 350px;
+            background-color: transparent;
+            border-radius: 50%;
+            position: relative;
+            overflow: hidden;
+            margin: 20px auto;
+            box-shadow: 
+                0 0 30px rgba(0, 255, 255, 0.2),
+                0 0 60px rgba(0, 255, 255, 0.1),
+                inset 0 0 30px rgba(0, 255, 255, 0.1);
+            border: 2px solid rgba(0, 255, 255, 0.2);
+            animation: platformGlow 3s ease-in-out infinite;
+        }
+
+        @keyframes platformGlow {
+            0%, 100% { box-shadow: 0 0 30px rgba(0, 255, 255, 0.2), 0 0 60px rgba(0, 255, 255, 0.1), inset 0 0 30px rgba(0, 255, 255, 0.1); }
+            50% { box-shadow: 0 0 40px rgba(0, 255, 255, 0.3), 0 0 80px rgba(0, 255, 255, 0.2), inset 0 0 40px rgba(0, 255, 255, 0.2); }
+        }
+
+        #wave-canvas {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .speak-indicator {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px 40px;
+            border-radius: 25px;
+            font-size: 24px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: #ffffff;
+            box-shadow: 
+                0 0 20px rgba(255, 255, 255, 0.1),
+                inset 0 0 20px rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1000;
+            text-transform: uppercase;
+            backdrop-filter: blur(5px);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .speak-indicator::before {
+            content: '';
+            width: 12px;
+            height: 12px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .speak-indicator.visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(-5px);
+            box-shadow: 
+                0 0 30px rgba(255, 255, 255, 0.15),
+                inset 0 0 30px rgba(255, 255, 255, 0.1);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+            50% {
+                transform: scale(1.2);
+                opacity: 1;
+            }
+        }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js/+esm",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+            "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.3/modules/talkinghead.mjs"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div id="avatar">
+            <div class="wave-container left">
+                <div class="wave"></div>
+                <div class="wave"></div>
+                <div class="wave"></div>
+            </div>
+            <div class="wave-container right">
+                <div class="wave"></div>
+                <div class="wave"></div>
+                <div class="wave"></div>
+            </div>
+            <div id="speak-indicator" class="speak-indicator">Please speak</div>
+        </div>
+        <div id="waveform">
+            <canvas id="wave-canvas"></canvas>
+        </div>
+        <div id="messages"></div>
+        <div class="controls">
+            <button id="startButton">Start Listening</button>
+            <button id="stopButton" disabled>Stop Listening</button>
+        </div>
+        <div id="loading"></div>
+    </div>
+
+   <script type="module">
+        import { TalkingHead } from "talkinghead";
+        
+        let ws;
+        let recognition;
+        let isListening = false;
+        let head;
+        let audioCache = new Map();
+        let isAvatarSpeaking = false;
+        let waveCanvas, waveCtx, audioContext, analyser, dataArray, animationFrame;
+        let identityVerified = false;
+        let silenceTimer = null;
+        let lastSpeechTime = null;
+        let wsRefreshTimer = null;
+        let shouldStartListeningAfterSpeech = false;
+        const SILENCE_TIMEOUT = 5000; // 5 seconds of silence before ending session
+        const WS_REFRESH_INTERVAL = 7 * 60 * 1000; // 7 minutes in milliseconds
+        let wavePhase = 0;
+        const WAVE_SPEED = 0.05;
+        const WAVE_AMPLITUDE = 15;
+        const WAVE_FREQUENCY = 0.1;
+        
+        // Initialize talking head
+        async function initTalkingHead() {
+            const nodeAvatar = document.getElementById('avatar');
+            head = new TalkingHead(nodeAvatar, {
+                ttsEndpoint: "https://eu-texttospeech.googleapis.com/v1beta1/text:synthesize?key=AIzaSyBT6Si9sLf9y06JoepVEXVu9VExepsTTbY",
+                lipsyncModules: ["en"],
+                cameraView: "full"
+            });
+        
+            const nodeLoading = document.getElementById('loading');
+            try {
+                nodeLoading.textContent = "Loading avatar...";
+                await head.showAvatar({
+                    url: 'https://models.readyplayer.me/67a1b44168c4515911873c8b.glb?morphTargets=ARKit,Oculus+Visemes,mouthOpen,mouthSmile,eyesClosed,eyesLookUp,eyesLookDown&textureSizeLimit=1024&textureFormat=png',
+                    body: 'F',
+                    avatarMood: 'neutral',
+                    ttsLang: "en-GB",
+                    ttsVoice: "en-GB-Wavenet-A",
+                    lipsyncLang: 'en',
+                    cameraDistance: 2.5,
+                    cameraTarget: [0, 0.8, 0]
+                }, (ev) => {
+                    if (ev.lengthComputable) {
+                        let val = Math.min(100, Math.round(ev.loaded/ev.total * 100));
+                        nodeLoading.textContent = "Loading " + val + "%";
+                    }
+                });
+                nodeLoading.style.display = 'none';
+                
+                // Initial greeting
+    
+                
+            } catch (error) {
+                console.error(error);
+                nodeLoading.textContent = error.toString();
+            }
+        }
+        
+        // Function to get audio duration
+        async function getAudioDuration(audioData) {
+            return new Promise((resolve) => {
+                const audio = new Audio();
+                audio.addEventListener('loadedmetadata', () => {
+                    resolve(audio.duration);
+                });
+                audio.src = 'data:audio/mp3;base64,' + audioData;
+            });
+        }
+    
+        function initWaveform() {
+            waveCanvas = document.getElementById('wave-canvas');
+            waveCtx = waveCanvas.getContext('2d');
+            
+            function resizeCanvas() {
+                waveCanvas.width = waveCanvas.offsetWidth;
+                waveCanvas.height = waveCanvas.offsetHeight;
+            }
+            
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+        }
+        
+        function drawWave() {
+            if (!isListening) {
+                if (animationFrame) {
+                    cancelAnimationFrame(animationFrame);
+                }
+                return;
+            }
+            
+            waveCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
+            
+            // Draw circular platform base
+            waveCtx.beginPath();
+            waveCtx.arc(waveCanvas.width/2, waveCanvas.height/2, waveCanvas.width/2 - 10, 0, Math.PI * 2);
+            const gradient = waveCtx.createRadialGradient(
+                waveCanvas.width/2, waveCanvas.height/2, 0,
+                waveCanvas.width/2, waveCanvas.height/2, waveCanvas.width/2
+            );
+            gradient.addColorStop(0, 'rgba(0, 255, 255, 0.1)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
+            waveCtx.fillStyle = gradient;
+            waveCtx.fill();
+            
+            // Draw circular border
+            waveCtx.beginPath();
+            waveCtx.arc(waveCanvas.width/2, waveCanvas.height/2, waveCanvas.width/2 - 10, 0, Math.PI * 2);
+            waveCtx.strokeStyle = 'rgba(0, 255, 255, 0.6)';
+            waveCtx.lineWidth = 3;
+            waveCtx.stroke();
+            
+            // Draw animated wave
+            waveCtx.beginPath();
+            const waveformGradient = waveCtx.createLinearGradient(0, 0, waveCanvas.width, waveCanvas.height);
+            waveformGradient.addColorStop(0, 'rgba(0, 255, 255, 0.8)');
+            waveformGradient.addColorStop(1, 'rgba(0, 255, 255, 0.4)');
+            waveCtx.strokeStyle = waveformGradient;
+            waveCtx.lineWidth = 2;
+            
+            const centerX = waveCanvas.width/2;
+            const centerY = waveCanvas.height/2;
+            const radius = waveCanvas.width/2 - 20;
+            
+            for (let i = 0; i < 360; i++) {
+                const angle = (i / 180) * Math.PI;
+                const waveOffset = Math.sin(angle * WAVE_FREQUENCY + wavePhase) * WAVE_AMPLITUDE;
+                const r = radius + waveOffset;
+                
+                const x = centerX + Math.cos(angle) * r;
+                const y = centerY + Math.sin(angle) * r;
+                
+                if (i === 0) {
+                    waveCtx.moveTo(x, y);
+                } else {
+                    waveCtx.lineTo(x, y);
+                }
+            }
+            
+            waveCtx.closePath();
+            waveCtx.stroke();
+            
+            // Draw inner glow
+            waveCtx.beginPath();
+            waveCtx.arc(centerX, centerY, radius - 5, 0, Math.PI * 2);
+            waveCtx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+            waveCtx.lineWidth = 1;
+            waveCtx.stroke();
+            
+            // Draw decorative rings
+            for (let i = 1; i <= 3; i++) {
+                waveCtx.beginPath();
+                waveCtx.arc(centerX, centerY, radius - (i * 20), 0, Math.PI * 2);
+                waveCtx.strokeStyle = `rgba(0, 255, 255, ${0.1 - (i * 0.02)})`;
+                waveCtx.lineWidth = 1;
+                waveCtx.stroke();
+            }
+            
+            // Update wave phase for animation
+            wavePhase += WAVE_SPEED;
+            
+            animationFrame = requestAnimationFrame(drawWave);
+        }
+        
+        function updateSpeakIndicator(show) {
+            const indicator = document.getElementById('speak-indicator');
+            const leftWave = document.querySelector('.wave-container.left');
+            const rightWave = document.querySelector('.wave-container.right');
+            
+            if (show) {
+                indicator.classList.add('visible');
+                leftWave.classList.add('visible');
+                rightWave.classList.add('visible');
+            } else {
+                indicator.classList.remove('visible');
+                leftWave.classList.remove('visible');
+                rightWave.classList.remove('visible');
+            }
+        }
+
+        function setUIVerified(isVerified) {
+            const indicator = document.getElementById('speak-indicator');
+            const startButton = document.getElementById('startButton');
+            
+            identityVerified = isVerified;
+
+            if (isVerified) {
+                indicator.textContent = "Card Verified";
+                startButton.disabled = false;
+                displayMessage("System: Identity verified. Waiting for AI to welcome you.");
+                shouldStartListeningAfterSpeech = true;
+            } else {
+                indicator.textContent = "Show Card to Start";
+                startButton.disabled = true;
+                displayMessage("System: Please show your card for verification.");
+                shouldStartListeningAfterSpeech = false;
+            }
+        }
+
+        function showMicOpen() {
+            const indicator = document.getElementById('speak-indicator');
+            indicator.textContent = "Microphone Active";
+            indicator.classList.add('visible');
+            document.querySelector('.wave-container.left').classList.add('visible');
+            document.querySelector('.wave-container.right').classList.add('visible');
+            displayMessage("System: Microphone is open. Please speak.");
+        }
+
+        function startSilenceDetection() {
+            clearTimeout(silenceTimer);
+            lastSpeechTime = Date.now();
+            silenceTimer = setInterval(() => {
+                const timeSinceLastSpeech = Date.now() - lastSpeechTime;
+                if (timeSinceLastSpeech >= SILENCE_TIMEOUT && identityVerified) {
+                    handleSilenceTimeout();
+                }
+            }, 1000);
+        }
+
+        function handleSilenceTimeout() {
+            displayMessage('No speech detected for 5 seconds. Ending session...');
+            stopListening();
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('silence_detected');
+                setUIVerified(false); // Reset UI to unverified state
+            }
+            clearInterval(silenceTimer);
+        }
+    
+        function startListening() {
+            // If we're already listening, don't try to start again
+            if (isListening) {
+                return;
+            }
+            
+            // If the avatar is speaking, wait for it to finish
+            if (isAvatarSpeaking) {
+                displayMessage("System: Please wait for AI to finish speaking.");
+                shouldStartListeningAfterSpeech = true;
+                return;
+            }
+
+            // If identity is not verified, we can't start listening
+            if (!identityVerified) {
+                displayMessage("System: Cannot start listening. Identity not verified.");
+                head.speakText("Please show your card before we can begin.");
+                return;
+            }
+
+            // All checks passed, start listening
+            if (recognition && !isListening && !isAvatarSpeaking && ws.readyState === WebSocket.OPEN) {
+                recognition.start();
+                isListening = true;
+                document.getElementById('startButton').disabled = true;
+                document.getElementById('stopButton').disabled = false;
+                updateSpeakIndicator(true);
+                showMicOpen(); // Show mic is open when starting to listen
+                wavePhase = 0; // Reset wave phase when starting
+                drawWave();
+                displayMessage('Listening...');
+                
+                // Start silence detection
+                lastSpeechTime = Date.now();
+                startSilenceDetection();
+                
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        const source = audioContext.createMediaStreamSource(stream);
+                        source.connect(analyser);
+                    })
+                    .catch(err => console.error('Error accessing microphone:', err));
+            }
+        }
+        
+        function stopListening() {
+            if (recognition && isListening) {
+                recognition.stop();
+                isListening = false;
+                document.getElementById('startButton').disabled = false;
+                document.getElementById('stopButton').disabled = true;
+                updateSpeakIndicator(false);
+                displayMessage('Stopped listening');
+                clearInterval(silenceTimer);
+            }
+        }
+        
+        async function requestTTS(text) {
+            const response = await fetch("https://eu-texttospeech.googleapis.com/v1beta1/text:synthesize?key=AIzaSyBT6Si9sLf9y06JoepVEXVu9VExepsTTbY", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    input: { text },
+                    voice: { languageCode: 'en-GB', name: 'en-GB-Wavenet-A' },
+                    audioConfig: { audioEncoding: 'MP3' }
+                })
+            });
+            
+            const data = await response.json();
+            return data.audioContent;
+        }
+        
+        function initSpeechRecognition() {
+            recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+        }
+        
+        function startWsRefreshTimer() {
+            clearWsRefreshTimer();
+            wsRefreshTimer = setInterval(() => {
+                if (!isListening && !isAvatarSpeaking && ws && ws.readyState === WebSocket.OPEN) {
+                    displayMessage('Refreshing WebSocket connection...');
+                    ws.close();
+                    connectWebSocket();
+                }
+            }, WS_REFRESH_INTERVAL);
+        }
+
+        function clearWsRefreshTimer() {
+            if (wsRefreshTimer) {
+                clearInterval(wsRefreshTimer);
+                wsRefreshTimer = null;
+            }
+        }
+
+        function connectWebSocket() {
+            ws = new WebSocket('https://2547-103-165-30-25.ngrok-free.app/ws');
+            
+            recognition.onresult = async (event) => {
+                const text = event.results[event.results.length - 1][0].transcript;
+                lastSpeechTime = Date.now(); // Update last speech time when speech is detected
+                displayMessage(`You: ${text}`);
+                
+                // Reset WebSocket refresh timer when there's activity
+                startWsRefreshTimer();
+                
+                const normalizedText = text.toLowerCase().trim();
+                if (normalizedText.includes('thank you') && normalizedText.includes('done')) {
+                    displayMessage('Session ending...');
+                    stopListening();
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send('thankyou and done');
+                        ws.close();
+                        setTimeout(() => {
+                            connectWebSocket();
+                        }, 5000);
+                    }
+                    return;
+                }
+
+                // If the microphone is active, we're already verified, so send the question
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send('question:' + text);
+                    stopListening();
+                    isAvatarSpeaking = true;
+                } else {
+                    displayMessage('Error: Not connected to server');
+                }
+            };
+            
+            ws.onmessage = async function(event) {
+                const message = event.data;
+                
+                if (message === 'session_ended') {
+                    displayMessage('Session ended');
+                    stopListening();
+                    ws.close();
+                    return;
+                }
+                
+                if (message.startsWith('ai_response:')) {
+                    const response = message.substring(11);
+                    displayMessage(`Assistant: ${response}`);
+                    
+                    try {
+                        // Ensure the avatar speaks the response
+                        isAvatarSpeaking = true;
+                        displayMessage("System: AI is speaking...");
+                        await head.speakText(response);
+                        const audioContent = await requestTTS(response);
+                        const duration = await getAudioDuration(audioContent);
+                        audioCache.set(response, { audio: audioContent, duration: duration });
+
+                        // Wait for the speech to complete before enabling listening
+                        displayMessage(`System: AI will finish speaking in ${Math.round(duration)} seconds...`);
+                        
+                        // Force a shorter timeout for the welcome message to ensure microphone activates
+                        const isWelcomeMessage = response.includes("Welcome") || response.includes("Identity verified");
+                        const waitTime = isWelcomeMessage ? 1000 : (duration * 1000) + 500;
+                        
+                        setTimeout(() => {
+                            isAvatarSpeaking = false;
+                            displayMessage("System: AI finished speaking.");
+                            
+                            if (identityVerified && shouldStartListeningAfterSpeech && !isListening && ws.readyState === WebSocket.OPEN) {
+                                displayMessage("System: Starting microphone...");
+                                startListening();
+                                showMicOpen();
+                            } else {
+                                displayMessage(`System: Not starting microphone. identityVerified=${identityVerified}, shouldStartListeningAfterSpeech=${shouldStartListeningAfterSpeech}, isListening=${isListening}, ws.readyState=${ws.readyState}`);
+                            }
+                        }, waitTime);
+
+                    } catch (error) {
+                        console.error('Error processing TTS:', error);
+                        displayMessage(`System: Error processing speech: ${error.message}`);
+                        isAvatarSpeaking = false;
+                        
+                        if (identityVerified && shouldStartListeningAfterSpeech && !isListening && ws.readyState === WebSocket.OPEN) {
+                            startListening();
+                            showMicOpen();
+                        }
+                    }
+                } else if (message.startsWith('card_detected:')) {
+                    try {
+                        // Log the raw message for debugging
+                        console.log("Raw card_detected message:", message);
+                        
+                        // Extract the JSON part correctly
+                        const jsonStr = message.substring(13);
+                        console.log("Extracted JSON string:", jsonStr);
+                        
+                        // Parse the JSON with better error handling
+                        let cardInfo;
+                        try {
+                            cardInfo = JSON.parse(jsonStr);
+                        } catch (parseError) {
+                            console.error("JSON parse error:", parseError);
+                            console.log("Attempting to clean the JSON string...");
+                            
+                            // Try to clean and fix common JSON issues
+                            const cleanedJsonStr = jsonStr.trim()
+                                .replace(/\n/g, '')
+                                .replace(/\r/g, '')
+                                .replace(/\t/g, '')
+                                .replace(/\\/g, '\\\\')
+                                .replace(/\\"/g, '\\"');
+                                
+                            console.log("Cleaned JSON string:", cleanedJsonStr);
+                            cardInfo = JSON.parse(cleanedJsonStr);
+                        }
+                        
+                        displayMessage(`Card detected for ${cardInfo.name}`);
+                        setUIVerified(true);
+                        
+                        // Explicitly set flag to start listening after welcome message
+                        shouldStartListeningAfterSpeech = true;
+                        displayMessage("System: Card verified. Will start listening after welcome message.");
+                    } catch (error) {
+                        console.error('Error parsing card info:', error);
+                        displayMessage(`Error processing card information: ${error.message}`);
+                        // Try to recover by manually setting verified state
+                        displayMessage("System: Attempting to recover from error...");
+                        setUIVerified(true);
+                        shouldStartListeningAfterSpeech = true;
+                    }
+                } else if (message === 'no_card_detected') {
+                    // Only show this message if identity is not yet verified
+                    if (!identityVerified) {
+                        displayMessage('No card detected. Proceeding without verification...');
+                        // The server will send a spoken message via 'ai_response'
+                    }
+                } else if (message.startsWith('card_error:')) {
+                    const error = message.substring(11);
+                    displayMessage(`Card error: ${error}`);
+                    const errorMessage = "There was an error verifying your card. You can still ask questions, but some features may be limited.";
+                    try {
+                        // Ensure the avatar speaks the error message
+                        await head.speakText(errorMessage);
+                        const audioContent = await requestTTS(errorMessage);
+                        const duration = await getAudioDuration(audioContent);
+                        audioCache.set(errorMessage, { audio: audioContent, duration: duration });
+                        
+                        setTimeout(() => {
+                            if (!isListening) startListening();
+                        }, (duration * 1000) + 500);
+                    } catch (error) {
+                        console.error('Error processing card error TTS:', error);
+                        if (!isListening) startListening();
+                    }
+                }
+            };
+    
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                displayMessage('Error: WebSocket connection failed');
+                stopListening();
+            };
+    
+            ws.onclose = function() {
+                displayMessage('WebSocket connection closed');
+                stopListening();
+                clearWsRefreshTimer();
+            };
+    
+            ws.onopen = function() {
+                displayMessage('Connected to server');
+                startWsRefreshTimer();
+            };
+        }
+        
+        function displayMessage(message) {
+            const messagesDiv = document.getElementById('messages');
+            const timestamp = new Date().toLocaleTimeString();
+            messagesDiv.innerHTML += `<p>[${timestamp}] ${message}</p>`;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        // Initialize everything when page loads
+        window.onload = async function() {
+            await initTalkingHead();
+            initSpeechRecognition();
+            connectWebSocket();
+            initWaveform();
+           
+            document.getElementById('startButton').onclick = startListening;
+            document.getElementById('stopButton').onclick = stopListening;
+        
+            // Set initial UI state to unverified
+            setUIVerified(false);
+
+            // Add audio level detection for better silence detection
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    const audioContext = new AudioContext();
+                    const analyser = audioContext.createAnalyser();
+                    const microphone = audioContext.createMediaStreamSource(stream);
+                    const scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
+                    
+                    analyser.smoothingTimeConstant = 0.8;
+                    analyser.fftSize = 1024;
+                    
+                    microphone.connect(analyser);
+                    analyser.connect(scriptProcessor);
+                    scriptProcessor.connect(audioContext.destination);
+                    
+                    const audioData = new Uint8Array(analyser.frequencyBinCount);
+                    
+                    scriptProcessor.onaudioprocess = function() {
+                        analyser.getByteFrequencyData(audioData);
+                        const audioLevel = getAudioLevel(audioData);
+                        
+                        // If we detect actual speech (not just background noise)
+                        if (audioLevel > 10 && isListening) {
+                            lastSpeechTime = Date.now();
+                        }
+                    };
+                    
+                    function getAudioLevel(data) {
+                        let sum = 0;
+                        for (let i = 0; i < data.length; i++) {
+                            sum += data[i];
+                        }
+                        return sum / data.length;
+                    }
+                })
+                .catch(err => console.error('Error accessing microphone for audio levels:', err));
+
+            // Handle visibility changes
+            document.addEventListener("visibilitychange", function (ev) {
+                if (document.visibilityState === "visible") {
+                    head.start();
+                } else {
+                    head.stop();
+                }
+            });
+        };
+    </script>
+
+</body>
+</html>

@@ -42,9 +42,10 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 #CARD_STREAM_URL = os.getenv('CARD_STREAM_URL', 'rtsp://metaverse911:hellomoto123@192.168.1.106:554/stream1')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-if not OPENAI_API_KEY:
-    logger.error("OpenAI API key not found in environment variables!")
+
+# Add Gemini API key
+GEMINI_API_KEY = "AIzaSyApZxWo7nkeSaNnozStY14DRoJSRm21iEU"
+
 
 app = FastAPI()
 
@@ -122,11 +123,11 @@ class MeetingTracker:
             os.makedirs(storage_dir)
 
     async def generate_discussion_overview(self) -> str:
-        """Generate a discussion overview using GPT API"""
+        """Generate a discussion overview using Gemini API"""
         if not self.current_meeting["questions"]:
             return "No discussion took place."
 
-        # Prepare conversation history for GPT
+        # Prepare conversation history
         conversation = ""
         for q, r in zip(self.current_meeting["questions"], self.current_meeting["responses"]):
             conversation += f"Q: {q}\nA: {r}\n\n"
@@ -145,28 +146,53 @@ class MeetingTracker:
         )
 
         try:
+            # Create Gemini API request
+            gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+            
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: requests.post(
-                    'https://api.openai.com/v1/chat/completions',
+                    gemini_url,
                     headers={
-                        'Authorization': f'Bearer {OPENAI_API_KEY}',
                         'Content-Type': 'application/json'
                     },
                     json={
-                        'model': 'gpt-4o-mini',
-                        'messages': [{'role': 'user', 'content': prompt}],
-                        'temperature': 0.7,
-                        'max_tokens': 250
+                        'contents': [{
+                            'parts': [{
+                                'text': prompt
+                            }]
+                        }],
+                        'generationConfig': {
+                            'temperature': 0.7,
+                            'maxOutputTokens': 250
+                        }
                     }
                 )
             )
             
-            overview = response.json()['choices'][0]['message']['content'].strip()
+            # Check if response is successful
+            if response.status_code != 200:
+                logger.error(f"Gemini API error - Status Code: {response.status_code}, Response: {response.text}")
+                return "Error generating discussion overview."
+                
+            # Parse the response
+            response_json = response.json()
+            
+            # Extract the text content from the response
+            if ('candidates' not in response_json or
+                not response_json['candidates'] or
+                'content' not in response_json['candidates'][0] or
+                'parts' not in response_json['candidates'][0]['content'] or
+                not response_json['candidates'][0]['content']['parts'] or
+                'text' not in response_json['candidates'][0]['content']['parts'][0]):
+                logger.error(f"Invalid Gemini API response structure: {response_json}")
+                return "Error generating discussion overview."
+            
+            overview = response_json['candidates'][0]['content']['parts'][0]['text'].strip()
             self.current_meeting["discussion_overview"] = overview
             return overview
         except Exception as e:
-            logger.error(f"Error generating discussion overview: {str(e)}")
+            logger.error(f"Error generating discussion overview with Gemini API: {str(e)}")
             return "Error generating discussion overview."
 
     def start_meeting(self, participant_name: Optional[str] = None):
@@ -251,47 +277,6 @@ class MeetingTracker:
         
         return filename
 
-    async def generate_discussion_overview(self) -> str:
-        """Generate a discussion overview using GPT API"""
-        if not self.current_meeting["questions"]:
-            return "No discussion took place."
-
-        # Prepare conversation history for GPT
-        conversation = ""
-        for q, r in zip(self.current_meeting["questions"], self.current_meeting["responses"]):
-            conversation += f"Q: {q}\nA: {r}\n\n"
-
-        prompt = (
-            "Based on the following conversation, provide a concise overview of what was discussed. "
-            "Focus on the main points, key decisions, and important information shared. "
-            "Keep it to 2-3 sentences.\n\n"
-            f"Conversation:\n{conversation}"
-        )
-
-        try:
-            response = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: requests.post(
-                    'https://api.openai.com/v1/chat/completions',
-                    headers={
-                        'Authorization': f'Bearer {OPENAI_API_KEY}',
-                        'Content-Type': 'application/json'
-                    },
-                    json={
-                        'model': 'gpt-4o-mini',
-                        'messages': [{'role': 'user', 'content': prompt}],
-                        'temperature': 0.3
-                    }
-                )
-            )
-            
-            overview = response.json()['choices'][0]['message']['content'].strip()
-            self.current_meeting["discussion_overview"] = overview
-            return overview
-        except Exception as e:
-            logger.error(f"Error generating discussion overview: {str(e)}")
-            return "Error generating discussion overview."
-            
     def _generate_summary(self) -> Dict:
         """Generate a meeting summary"""
         start_time = datetime.fromisoformat(self.current_meeting["start_time"])
@@ -332,31 +317,58 @@ async def process_frame(frame, face_cascade):
 
 
 async def get_ai_response(text: str, name: Optional[str] = None) -> str:
-    """Get response using single context, limited to 50 words"""
+    """Get response using Gemini API, limited to 50 words"""
     try:
-        system_context =system_context = "\nIMPORTANT: All responses must be 50 words or less.you can only answer about metaverse, virtual reality, augmented reality, extended reality and mixed reality, be concise of what u speak. you can handle basic conversation, dont give information outside of what i said though please handle basic conversations"
+        system_context = "\nIMPORTANT: All responses must be 50 words or less. You can only answer about metaverse, virtual reality, augmented reality, extended reality and mixed reality. Be concise. You can handle basic conversation, but don't give information outside of what I said. Please handle basic conversations."
+        
+        # Create full prompt with system context and user question
+        full_prompt = f"{system_context}\n\nUser query: {text}"
+        
+        # Create Gemini API request
+        gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
         
         response = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: requests.post(
-                'https://api.openai.com/v1/chat/completions',
+                gemini_url,
                 headers={
-                    'Authorization': f'Bearer {OPENAI_API_KEY}',
                     'Content-Type': 'application/json'
                 },
                 json={
-                    'model': 'gpt-4o-mini',
-                    'messages': [
-                        {"role": "system", "content": system_context},
-                        {"role": "user", "content": f"Provide a concise response (maximum 50 words) to: {text}"}
-                    ],
-                    'temperature': 0.5,
-                    'max_tokens': 100  # Limiting tokens to encourage shorter responses
+                    'contents': [{
+                        'parts': [{
+                            'text': full_prompt
+                        }]
+                    }],
+                    'generationConfig': {
+                        'temperature': 0.5,
+                        'maxOutputTokens': 100,  # Limiting tokens to encourage shorter responses
+                        'topP': 0.8,
+                        'topK': 40
+                    }
                 }
             )
         )
         
-        response_text = response.json()['choices'][0]['message']['content'].strip()
+        # Check if response is successful
+        if response.status_code != 200:
+            logger.error(f"Gemini API error - Status Code: {response.status_code}, Response: {response.text}")
+            return "Error processing your question. Please try again."
+        
+        # Parse the response
+        response_json = response.json()
+        
+        # Extract the text from the response
+        if ('candidates' not in response_json or
+            not response_json['candidates'] or
+            'content' not in response_json['candidates'][0] or
+            'parts' not in response_json['candidates'][0]['content'] or
+            not response_json['candidates'][0]['content']['parts'] or
+            'text' not in response_json['candidates'][0]['content']['parts'][0]):
+            logger.error(f"Invalid Gemini API response structure: {response_json}")
+            return "Error processing your question. Please try again."
+        
+        response_text = response_json['candidates'][0]['content']['parts'][0]['text'].strip()
         
         # Ensure response is exactly 50 words or less
         words = response_text.split()
@@ -373,7 +385,7 @@ async def get_ai_response(text: str, name: Optional[str] = None) -> str:
         return response_text
         
     except Exception as e:
-        logger.error(f"Error getting AI response: {str(e)}")
+        logger.error(f"Error getting AI response from Gemini: {str(e)}")
         return "Error processing your question, Please try again,"
     
 face_detected = False
@@ -383,8 +395,9 @@ card_detected = False
 CARD_STREAM_URL = os.getenv('CARD_STREAM_URL', 'rtsp://metaverse911:hellomoto123@192.168.1.56:554/stream1')
 
 async def validate_contact_info(text: str) -> tuple[bool, Optional[Dict]]:
-    """Validate if text contains valid name and extract contact information"""
+    """Validate if text contains valid name and extract contact information using Gemini API"""
     try:
+        # Prepare the prompt for Gemini API
         prompt = (
             "Extract name and contact information from the text. If a piece of information "
             "is not found, use 'NA'. Respond in this exact JSON format:\n"
@@ -398,42 +411,80 @@ async def validate_contact_info(text: str) -> tuple[bool, Optional[Dict]]:
             f"Text to analyze: {text}"
         )
         
+        # Create Gemini API request
+        gemini_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+        
         response = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: requests.post(
-                'https://api.openai.com/v1/chat/completions',
+                gemini_url,
                 headers={
-                    'Authorization': f'Bearer {OPENAI_API_KEY}',
                     'Content-Type': 'application/json'
                 },
                 json={
-                    'model': 'gpt-4o-mini',
-                    'messages': [{'role': 'user', 'content': prompt}],
-                    'temperature': 0.1
+                    'contents': [{
+                        'parts': [{
+                            'text': prompt
+                        }]
+                    }],
+                    'generationConfig': {
+                        'temperature': 0.1,
+                        'topK': 1,
+                        'topP': 1
+                    }
                 }
             )
         )
         
-        # Check if response is valid
-        response_json = response.json()
-        if 'choices' not in response_json or not response_json['choices']:
-            logger.error(f"Invalid API response structure: {response_json}")
+        # Check if response is successful
+        if response.status_code != 200:
+            logger.error(f"Gemini API error - Status Code: {response.status_code}, Response: {response.text}")
             return False, None
             
-        if 'message' not in response_json['choices'][0] or 'content' not in response_json['choices'][0]['message']:
-            logger.error(f"Invalid message structure in API response: {response_json['choices'][0]}")
+        # Parse the response
+        response_json = response.json()
+        
+        # Log the full response for debugging
+        logger.debug(f"Gemini API response: {json.dumps(response_json)}")
+        
+        # Navigate the Gemini response structure to get the content
+        if ('candidates' not in response_json or
+            not response_json['candidates'] or
+            'content' not in response_json['candidates'][0] or
+            'parts' not in response_json['candidates'][0]['content'] or
+            not response_json['candidates'][0]['content']['parts'] or
+            'text' not in response_json['candidates'][0]['content']['parts'][0]):
+            logger.error(f"Invalid Gemini API response structure: {response_json}")
             return False, None
+            
+        # Extract the text content from the response
+        content = response_json['candidates'][0]['content']['parts'][0]['text'].strip()
         
-        content = response_json['choices'][0]['message']['content'].strip()
-        
+        # Parse the JSON in the response
         try:
-            contact_info = json.loads(content)
+            # Try to find JSON in the text (in case there's extra text)
+            json_pattern = r'({[\s\S]*})'
+            json_match = re.search(json_pattern, content)
+            
+            if json_match:
+                json_str = json_match.group(1)
+                contact_info = json.loads(json_str)
+            else:
+                # If no JSON pattern was found, try parsing the whole content
+                contact_info = json.loads(content)
+                
+            # Make sure all necessary fields are present
+            required_fields = ['is_valid', 'name', 'email', 'phone', 'company']
+            for field in required_fields:
+                if field not in contact_info:
+                    contact_info[field] = 'NA' if field != 'is_valid' else False
+                    
             return contact_info.get('is_valid', False), contact_info
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse contact info JSON: {e}. Content: {content}")
             return False, None
     except Exception as e:
-        logger.error(f"Error in contact info validation: {str(e)}")
+        logger.error(f"Error in contact info validation with Gemini API: {str(e)}")
         return False, None
     
 async def get_frame_from_window(window_name="Gameloop(64beta)"):
@@ -552,7 +603,7 @@ async def check_card_stream(websocket: WebSocket):
                         has_changed = await compare_frames_optimized(previous_frame, frame)
                         
                         if has_changed:
-                            logger.info("Change detected - processing with GPT")
+                            logger.info("Change detected - processing with Gemini")
                             
                             # Process with Vision API using compressed frame
                             success, encoded_frame = cv2.imencode('.jpg', frame, encode_param)

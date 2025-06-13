@@ -557,13 +557,22 @@ async def check_card_stream(websocket: WebSocket):
                             # Process with Vision API using compressed frame
                             success, encoded_frame = cv2.imencode('.jpg', frame, encode_param)
                             if success:
-                                text = await process_image_with_vision_api(encoded_frame.tobytes())
-                                if text:
-                                    is_valid, contact_info = await validate_contact_info(text)
-                                    if is_valid and contact_info['name'] != 'NA':
-                                        valid_card_path = os.path.join(screenshots_dir, f"valid_card_{timestamp}.jpg")
-                                        cv2.imwrite(valid_card_path, frame, encode_param)
-                                        return contact_info
+                                try:
+                                    text = await process_image_with_vision_api(encoded_frame.tobytes())
+                                    if text:
+                                        logger.info(f"Vision API detected text: {text[:100]}...")  # Log first 100 chars
+                                        is_valid, contact_info = await validate_contact_info(text)
+                                        
+                                        if is_valid and contact_info and contact_info.get('name') != 'NA':
+                                            valid_card_path = os.path.join(screenshots_dir, f"valid_card_{timestamp}.jpg")
+                                            cv2.imwrite(valid_card_path, frame, encode_param)
+                                            return contact_info
+                                        else:
+                                            logger.info("Card validation failed or name was NA")
+                                    else:
+                                        logger.info("No text detected in the frame")
+                                except Exception as e:
+                                    logger.error(f"Error processing frame with Vision API: {str(e)}")
                     
                     previous_frame = frame.copy()
                     last_screenshot_time = current_time

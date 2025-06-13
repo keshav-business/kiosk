@@ -639,8 +639,8 @@ async def check_card_stream(websocket: WebSocket):
         return None
 
 async def process_card_stream(websocket: WebSocket):
-    """Main function to process card stream frames from window at 1 frame per 3 seconds"""
-    logger.info("Starting card stream processing from window")
+    """Process card stream frames from window with improved frame capture and detection"""
+    logger.info("Starting card stream processing with improved detection")
     
     screenshots_dir = "screenshots"
     os.makedirs(screenshots_dir, exist_ok=True)
@@ -648,55 +648,68 @@ async def process_card_stream(websocket: WebSocket):
     try:
         previous_frame = None
         last_frame_time = 0
+        start_time = asyncio.get_event_loop().time()
+        max_detection_time = 15.0  # Maximum time for a single detection attempt in seconds
         
-        while True:
+        # Process frames for a limited time
+        while asyncio.get_event_loop().time() - start_time < max_detection_time:
             current_time = asyncio.get_event_loop().time()
             
-            # Only process a frame every 3 seconds
-            if current_time - last_frame_time >= 3.0:
+            # Process a frame every 3 seconds
+            if current_time - last_frame_time >= 1.5:  # Increased frequency for better detection
                 frame = await get_frame_from_window()
                 
                 if frame is not None:
-                    # Save frame
+                    # Resize for better detection
+                    frame = cv2.resize(frame, (800, 600))  # Higher resolution for better OCR
+                    
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     screenshot_path = os.path.join(screenshots_dir, f"capture_{timestamp}.jpg")
-                    cv2.imwrite(screenshot_path, frame)
+                    
+                    # Save with higher quality
+                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 95]
+                    cv2.imwrite(screenshot_path, frame, encode_param)
                     
                     # Send frame to websocket
-                    _, buffer = cv2.imencode('.jpg', frame)
+                    _, buffer = cv2.imencode('.jpg', frame, encode_param)
                     frame_base64 = base64.b64encode(buffer).decode('utf-8')
                     await websocket.send_text(f"frame:{frame_base64}")
                     
-                    # Process frame if it's different from previous
-                    if previous_frame is None or await compare_frames(previous_frame, frame):
-                        # Process frame with Vision API
-                        success, encoded_frame = cv2.imencode('.jpg', frame)
-                        if success:
-                            try:
-                                text = await process_image_with_vision_api(encoded_frame.tobytes())
-                                if text:
-                                    logger.info(f"Vision API detected text: {text[:100]}...")  # Log first 100 chars
-                                    is_valid, contact_info = await validate_contact_info(text)
-                                    
-                                    if is_valid and contact_info and contact_info.get('name') != 'NA':
-                                        logger.info("Valid card detected")
-                                        return contact_info
-                                    else:
-                                        logger.info("Card validation failed or name was NA")
+                    # Always process the current frame
+                    success, encoded_frame = cv2.imencode('.jpg', frame, encode_param)
+                    if success:
+                        try:
+                            text = await process_image_with_vision_api(encoded_frame.tobytes())
+                            if text:
+                                logger.info(f"Vision API detected text: {text[:100]}...")
+                                is_valid, contact_info = await validate_contact_info(text)
+                                
+                                if is_valid and contact_info and contact_info.get('name') != 'NA':
+                                    logger.info("Valid card detected!")
+                                    valid_card_path = os.path.join(screenshots_dir, f"valid_card_{timestamp}.jpg")
+                                    cv2.imwrite(valid_card_path, frame, encode_param)
+                                    return contact_info
                                 else:
-                                    logger.info("No text detected in the frame")
-                            except Exception as e:
-                                logger.error(f"Error processing frame with Vision API: {str(e)}")
+                                    logger.info("Card validation failed or name was NA")
+                            else:
+                                logger.info("No text detected in the frame")
+                        except Exception as e:
+                            logger.error(f"Error processing frame with Vision API: {str(e)}")
                     
                     previous_frame = frame.copy()
                     last_frame_time = current_time
             
-            # Short sleep to prevent CPU overload while waiting for next 3-second interval
+            # Short sleep between checks
             await asyncio.sleep(0.1)
+            
+        # If we reach here, no valid card was detected
+        logger.info(f"No valid card detected within {max_detection_time} seconds")
+        return None
             
     except Exception as e:
         logger.error(f"Error in card stream processing: {str(e)}")
         return None
+
 async def compare_frames_optimized(frame1: np.ndarray, frame2: np.ndarray, threshold: float = 0.1) -> bool:
     """Optimized frame comparison function"""
     try:
@@ -814,9 +827,24 @@ async def websocket_endpoint(websocket: WebSocket):
     meeting_tracker.start_meeting()
     
     try:
-        # Start card stream processing
-        contact_info = await process_card_stream(websocket)
+        contact_info = None
+        max_retries = 1000  # Set a high number for near-infinite retries
+        retry_count = 0
         
+        # Keep trying to detect card until successful or max retries reached
+        while not contact_info and retry_count < max_retries:
+            retry_count += 1
+            logger.info(f"Card detection attempt #{retry_count}")
+            
+            # Start card stream processing
+            contact_info = await process_card_stream(websocket)
+            
+            # If card detection failed, notify user and wait before retrying
+            if not contact_info:
+                await websocket.send_text("ai_response:Attempting to detect business card. Please hold your card steady in front of the camera.")
+                await asyncio.sleep(3)  # Wait 3 seconds before retrying
+        
+        # Process contact info if detection was successful
         if contact_info:
             # Update meeting with contact info
             meeting_tracker.update_contact_info(
@@ -833,7 +861,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "company": contact_info['company']
             }
             await websocket.send_text(f"card_detected:{json.dumps(card_message)}")
-            ph=contact_info['name'].split()[0]
+            ph = contact_info['name'].split()[0]
             welcome_message = f"Welcome {ph}! How can I assist you today?"
             
             await websocket.send_text(f"ai_response:{welcome_message}")
@@ -859,7 +887,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         emailer.process_and_send_report(log_filename)
                         print(log_filename)
                         print("keshav bhai")
-
                         break
                     
                     # Handle questions
@@ -875,7 +902,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     logger.error(f"Error handling message: {str(e)}")
                     break
         else:
-            await websocket.send_text("ai_response:No valid business card detected. Please try again.")
+            await websocket.send_text("ai_response:Failed to detect a valid business card after multiple attempts. Please try again later.")
             
     except Exception as e:
         logger.error(f"WebSocket error: {str(e)}")
